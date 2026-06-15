@@ -91,6 +91,25 @@ function findBuildSpot(slot, w, h) {
   }
   return null;
 }
+function freeTileNear(tx, ty, cls) {
+  if (pass(tx, ty, cls)) return [tx, ty];
+  for (let r = 1; r < 8; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+    if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
+    if (pass(tx + dx, ty + dy, cls)) return [tx + dx, ty + dy];
+  }
+  return null;
+}
+// Pop a unit out of any building footprint it is standing on, toward the nearest open tile.
+function ejectFromBuildings(u, dt) {
+  const tx = u.x / TILE | 0, ty = u.y / TILE | 0;
+  if (!inMap(tx, ty) || !OCC[ti(tx, ty)]) return;
+  const spot = freeTileNear(tx, ty, DEFS[u.type].cls);
+  if (!spot) return;
+  const cx = spot[0] * TILE + 16, cy = spot[1] * TILE + 16;
+  const dd = Math.hypot(cx - u.x, cy - u.y) || 1;
+  const step = Math.min(dd, 260 * dt);
+  u.x += (cx - u.x) / dd * step; u.y += (cy - u.y) / dd * step;
+}
 
 function teamColor(owner, team) {
   if (team === myTeam) return owner === mySlot ? OWN_BLUE : ALLY_TEAL;
@@ -156,8 +175,11 @@ function spawnUnit(owner, type, atB) {
   const src = atB || buildings.find(b => b.owner === owner && (DEFS[type].cls === 'inf' ? b.type === 'barracks' : b.type === 'factory') && !b.dead) || hqOf(owner);
   if (!src) return null;
   const dir = src.cx < WPX / 2 ? 1 : -1;
+  const frontX = src.cx + dir * (src.w / 2 + 26), frontY = src.cy + (Math.random() * 40 - 20);
+  const spot = freeTileNear(frontX / TILE | 0, frontY / TILE | 0, d.cls) || freeTileNear(src.cx / TILE | 0, src.cy / TILE | 0, d.cls);
+  const px = spot ? spot[0] * TILE + 16 : frontX, py = spot ? spot[1] * TILE + 16 : frontY;
   const u = { id: nextId++, owner, team, type, hp: d.hp, maxhp: d.hp,
-    x: src.cx + dir * 50 + (Math.random() * 20 - 10), y: src.cy + (Math.random() * 50 - 25),
+    x: px, y: py,
     face: dir > 0 ? 0 : Math.PI, cool: 0, target: null, path: null, pi: 0, dead: false,
     stance: 'aggressive', guardX: 0, guardY: 0, xp: 0, rank: 0, setupT: 0,
     buildTarget: null, attackMove: false };
@@ -451,6 +473,7 @@ function sim(dt) {
       const dx = u.x - o.x, dy = u.y - o.y, dist = Math.hypot(dx, dy), min = d.r + DEFS[o.type].r + 2;
       if (dist > 0 && dist < min) { const push = (min - dist) / 2; u.x += dx / dist * push * dt * 8; u.y += dy / dist * push * dt * 8; } }
     u.x = Math.max(8, Math.min(WPX - 8, u.x)); u.y = Math.max(8, Math.min(HPX - 8, u.y));
+    ejectFromBuildings(u, dt);
   }
 
   // projectiles
@@ -714,56 +737,117 @@ function chevrons(u) {
 function drawUnit(u) {
   if (relIsEnemy(u.team) && !tileVisible(u.x, u.y)) return;
   const d = DEFS[u.type]; const col = teamColor(u.owner, u.team);
-  const dark = shade(col, -0.35), body = col;
+  const dark = shade(col, -0.42), lite = shade(col, 0.28), out = '#191c13';
   ctx.save(); ctx.translate(u.x, u.y);
-  if (selSet.has(u.id)) { ctx.strokeStyle = '#e8e4c9'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(0, 0, d.r + 5, 0, 7); ctx.stroke(); }
-  if (u.stance === 'hold' && selSet.has(u.id)) { ctx.strokeStyle = '#d8b54a'; ctx.beginPath(); ctx.arc(0, 0, d.r + 8, 0, 7); ctx.stroke(); }
+  ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.beginPath(); ctx.ellipse(1.5, d.r * 0.5 + 1.5, d.r * 0.95, d.r * 0.55, 0, 0, 7); ctx.fill();
+  if (selSet.has(u.id)) { ctx.strokeStyle = u.stance === 'hold' ? '#d8b54a' : '#eef0d8'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(0, 0, d.r + 5, 0, 7); ctx.stroke(); }
+
   if (d.cls === 'inf') {
     ctx.rotate(u.face + Math.PI / 2);
-    ctx.fillStyle = body; ctx.beginPath(); ctx.arc(0, 0, 5, 0, 7); ctx.fill();
-    ctx.fillStyle = shade(col, 0.2); ctx.beginPath(); ctx.arc(0, 0, 3, 0, 7); ctx.fill();
-    ctx.strokeStyle = '#2c2c22'; ctx.lineWidth = 2;
-    const gl = u.type === 'bazooka' ? 9 : u.type === 'mg' ? 8 : u.type === 'builder' ? 0 : 6;
-    if (gl) { ctx.beginPath(); ctx.moveTo(2, -2); ctx.lineTo(3, -gl); ctx.stroke(); }
+    ctx.fillStyle = dark; ctx.fillRect(-3.5, 1.5, 7, 4);
+    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(0, 0, 4.6, 0, 7); ctx.fill();
+    ctx.strokeStyle = out; ctx.lineWidth = 1; ctx.stroke();
+    if (u.type === 'builder') {
+      ctx.fillStyle = '#e9c54b'; ctx.beginPath(); ctx.arc(0, -0.5, 3.4, Math.PI, 0); ctx.fill();
+      ctx.fillRect(-3.6, -0.9, 7.2, 1.4);
+      ctx.strokeStyle = '#cdd2cf'; ctx.lineWidth = 1.6; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(2.6, 0.5); ctx.lineTo(4.2, -4); ctx.stroke(); ctx.lineCap = 'butt';
+    } else {
+      ctx.fillStyle = lite; ctx.beginPath(); ctx.arc(0, -0.6, 3.1, 0, 7); ctx.fill();
+      ctx.strokeStyle = out; ctx.lineWidth = 0.8; ctx.stroke();
+      ctx.strokeStyle = '#23201a'; ctx.lineCap = 'round';
+      if (u.type === 'mg') {
+        ctx.lineWidth = 2.6; ctx.beginPath(); ctx.moveTo(0, -1); ctx.lineTo(0, -11); ctx.stroke();
+        ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-1.5, -8); ctx.lineTo(-4, -12); ctx.moveTo(1.5, -8); ctx.lineTo(4, -12); ctx.stroke();
+      } else if (u.type === 'bazooka') {
+        ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(-2.5, 2.5); ctx.lineTo(3.5, -10); ctx.stroke();
+        ctx.fillStyle = '#322a20'; ctx.beginPath(); ctx.arc(-2.8, 3, 1.7, 0, 7); ctx.fill();
+      } else {
+        ctx.lineWidth = 1.7; ctx.beginPath(); ctx.moveTo(2, -1.5); ctx.lineTo(3, -9.5); ctx.stroke();
+      }
+      ctx.lineCap = 'butt';
+    }
   } else if (u.type === 'tank') {
     ctx.rotate(u.face);
-    ctx.fillStyle = dark; ctx.fillRect(-13, -10, 26, 4); ctx.fillRect(-13, 6, 26, 4);
-    ctx.fillStyle = body; ctx.fillRect(-11, -7, 22, 14);
-    ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(0, 0, 6, 0, 7); ctx.fill();
-    ctx.strokeStyle = dark; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(17, 0); ctx.stroke();
+    ctx.fillStyle = '#23241b'; rr(-13, -11, 27, 5, 1.5); ctx.fill(); rr(-13, 6, 27, 5, 1.5); ctx.fill();
+    ctx.strokeStyle = '#12130d'; ctx.lineWidth = 0.8;
+    for (let i = -11; i <= 13; i += 4) { ctx.beginPath(); ctx.moveTo(i, -11); ctx.lineTo(i, -6); ctx.moveTo(i, 6); ctx.lineTo(i, 11); ctx.stroke(); }
+    ctx.fillStyle = shade(col, -0.06); rr(-12, -8, 24, 16, 3); ctx.fill();
+    ctx.strokeStyle = out; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = lite; ctx.fillRect(-9, -6, 18, 2.4);
+    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(-1, 0, 6.4, 0, 7); ctx.fill();
+    ctx.strokeStyle = out; ctx.stroke();
+    ctx.fillStyle = lite; ctx.beginPath(); ctx.arc(-2.6, -1.8, 2.1, 0, 7); ctx.fill();
+    ctx.fillStyle = '#201d18'; ctx.fillRect(-1, -1.5, 20, 3);
   } else if (u.type === 'atgun') {
     ctx.rotate(u.face);
-    ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(-3, -7, 4, 0, 7); ctx.arc(-3, 7, 4, 0, 7); ctx.fill();
-    ctx.fillStyle = body; ctx.fillRect(-7, -4, 9, 8);
-    ctx.strokeStyle = dark; ctx.lineWidth = 2.6; ctx.beginPath(); ctx.moveTo(-2, 0); ctx.lineTo(20, 0); ctx.stroke();
+    ctx.fillStyle = '#23241b'; ctx.beginPath(); ctx.arc(-4, -7, 3.6, 0, 7); ctx.arc(-4, 7, 3.6, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#12130d'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.strokeStyle = '#2c2c22'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-3, 0); ctx.lineTo(-12, -5); ctx.moveTo(-3, 0); ctx.lineTo(-12, 5); ctx.stroke();
+    ctx.fillStyle = shade(col, -0.05); rr(-6, -6, 7, 12, 1.5); ctx.fill();
+    ctx.strokeStyle = out; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = '#201d18'; ctx.fillRect(-2, -1.3, 22, 2.6);
+    ctx.fillStyle = '#15130f'; ctx.fillRect(18, -2, 4, 4);
   } else {
     ctx.rotate(u.face);
-    ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(-5, -7, 4, 0, 7); ctx.arc(-5, 7, 4, 0, 7); ctx.fill();
-    ctx.fillStyle = body; ctx.fillRect(-9, -4, 12, 8);
-    ctx.strokeStyle = dark; ctx.lineWidth = 3.4; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(19, 0); ctx.stroke();
+    ctx.strokeStyle = '#2c2c22'; ctx.lineWidth = 2.4; ctx.beginPath(); ctx.moveTo(-3, 0); ctx.lineTo(-13, -8); ctx.moveTo(-3, 0); ctx.lineTo(-13, 8); ctx.stroke();
+    ctx.fillStyle = '#23241b'; ctx.beginPath(); ctx.arc(-2, -8, 4.6, 0, 7); ctx.arc(-2, 8, 4.6, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#12130d'; ctx.lineWidth = 1.1; ctx.stroke();
+    ctx.fillStyle = shade(col, -0.04); rr(-6, -6, 12, 12, 2); ctx.fill();
+    ctx.strokeStyle = out; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = lite; ctx.beginPath(); ctx.arc(0, 0, 3, 0, 7); ctx.fill();
+    ctx.save(); ctx.rotate(-0.12); ctx.fillStyle = '#201d18'; ctx.fillRect(0, -1.8, 24, 3.6); ctx.fillStyle = '#15130f'; ctx.fillRect(22, -2.4, 4, 4.8); ctx.restore();
   }
   ctx.restore();
   chevrons(u);
   if (u.hp < u.maxhp || selSet.has(u.id)) { const w = 20, pct = Math.max(0, u.hp / u.maxhp);
-    ctx.fillStyle = '#1a1a1a'; ctx.fillRect(u.x - w / 2, u.y - d.r - 10, w, 3);
-    ctx.fillStyle = pct > 0.5 ? '#7dc25a' : pct > 0.25 ? '#d8b54a' : '#c4554a'; ctx.fillRect(u.x - w / 2, u.y - d.r - 10, w * pct, 3); }
+    ctx.fillStyle = 'rgba(15,15,12,.85)'; ctx.fillRect(u.x - w / 2 - 1, u.y - d.r - 11, w + 2, 4);
+    ctx.fillStyle = pct > 0.5 ? '#7dc25a' : pct > 0.25 ? '#d8b54a' : '#c4554a'; ctx.fillRect(u.x - w / 2, u.y - d.r - 10, w * pct, 2); }
 }
 function drawBuilding(b) {
   if (relIsEnemy(b.team) && !tileExplored(b.cx, b.cy)) return;
   const dim = relIsEnemy(b.team) && !tileVisible(b.cx, b.cy);
   const col = teamColor(b.owner, b.team);
-  ctx.globalAlpha = dim ? 0.55 : 1;
+  const x = b.x, y = b.y, w = b.w, h = b.h, cx = b.cx, cy = b.cy, out = '#1c1f15';
+  ctx.globalAlpha = dim ? 0.5 : 1;
+  ctx.fillStyle = 'rgba(0,0,0,.32)'; rr(x + 4, y + 5, w, h, 4); ctx.fill();
+
   if (b.type === 'bunker') {
-    ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fillRect(b.x + 3, b.y + 3, b.w, b.h);
-    ctx.fillStyle = b.constructing ? '#6a6a52' : shade(col, -0.2); ctx.fillRect(b.x, b.y, b.w, b.h);
-    ctx.strokeStyle = '#2c2c22'; ctx.lineWidth = 2; ctx.strokeRect(b.x + 5, b.y + 5, b.w - 10, b.h - 10);
+    ctx.fillStyle = b.constructing ? '#6d6a54' : '#84826b'; rr(x, y, w, h, 4); ctx.fill();
+    ctx.strokeStyle = '#33332a'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,.08)'; rr(x + 3, y + 3, w - 6, (h - 6) * 0.5, 3); ctx.fill();
+    ctx.fillStyle = '#15140f'; ctx.fillRect(x + 5, cy - 2, w - 10, 4);
+    ctx.fillStyle = col; ctx.fillRect(x + 3, y + 3, 5, 5);
+  } else if (b.type === 'hq') {
+    ctx.fillStyle = shade(col, -0.12); rr(x, y, w, h, 3); ctx.fill();
+    ctx.fillStyle = shade(col, -0.34); ctx.fillRect(x, y, w, 14);
+    ctx.fillStyle = '#5b5336'; ctx.fillRect(x, y + h - 8, w, 8);
+    ctx.fillStyle = '#6b6342'; for (let i = x + 4; i < x + w - 2; i += 9) { ctx.beginPath(); ctx.arc(i, y + h - 4, 3, 0, 7); ctx.fill(); }
+    ctx.fillStyle = '#241f18'; ctx.fillRect(cx - 7, y + h - 22, 14, 16);
+    star(cx, y + 26, 8.5, '#ecdc84');
+    ctx.strokeStyle = selBuilding === b.id ? '#ffd76a' : out; ctx.lineWidth = selBuilding === b.id ? 3 : 1.5; rr(x, y, w, h, 3); ctx.stroke();
+  } else if (b.type === 'barracks') {
+    ctx.fillStyle = shade(col, -0.1); rr(x, y, w, h, 3); ctx.fill();
+    ctx.strokeStyle = shade(col, -0.4); ctx.lineWidth = 1;
+    for (let i = y + 5; i < y + h - 4; i += 6) { ctx.beginPath(); ctx.moveTo(x + 3, i); ctx.lineTo(x + w - 3, i); ctx.stroke(); }
+    ctx.fillStyle = '#c9d27a'; ctx.fillRect(x + 9, y + 8, 5, 5); ctx.fillRect(x + w - 14, y + 8, 5, 5);
+    ctx.fillStyle = '#241f18'; ctx.fillRect(cx - 6, y + h - 18, 12, 14);
+    ctx.strokeStyle = selBuilding === b.id ? '#ffd76a' : out; ctx.lineWidth = selBuilding === b.id ? 3 : 1.5; rr(x, y, w, h, 3); ctx.stroke();
   } else {
-    ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fillRect(b.x + 4, b.y + 4, b.w, b.h);
-    ctx.fillStyle = shade(col, -0.15); ctx.fillRect(b.x, b.y, b.w, b.h);
-    ctx.strokeStyle = (selBuilding === b.id ? '#ffd76a' : shade(col, 0.2)); ctx.lineWidth = selBuilding === b.id ? 3 : 2; ctx.strokeRect(b.x, b.y, b.w, b.h);
-    ctx.fillStyle = '#f0ecd0'; ctx.font = 'bold 11px Courier New'; ctx.textAlign = 'center';
-    ctx.fillText(b.type === 'hq' ? 'HQ' : b.type === 'barracks' ? 'BRKS' : 'FCTY', b.cx, b.cy + 4);
-    ctx.fillStyle = col; ctx.fillRect(b.x + 4, b.y - 12, 14, 8);
+    ctx.fillStyle = shade(col, -0.14); rr(x, y, w, h, 3); ctx.fill();
+    ctx.fillStyle = shade(col, -0.32);
+    const n = 4, sw = w / n;
+    for (let i = 0; i < n; i++) { ctx.beginPath(); ctx.moveTo(x + i * sw, y + 15); ctx.lineTo(x + i * sw + sw * 0.5, y + 3); ctx.lineTo(x + i * sw + sw, y + 15); ctx.closePath(); ctx.fill(); }
+    ctx.fillStyle = '#9fb0c0'; for (let i = 0; i < n; i++) ctx.fillRect(x + i * sw + sw * 0.5 - 1, y + 7, 2.5, 7);
+    ctx.fillStyle = '#3a382e'; ctx.fillRect(x + w - 16, y - 9, 7, 19);
+    ctx.fillStyle = '#4a473a'; ctx.fillRect(x + w - 16.5, y - 9, 8, 3);
+    ctx.fillStyle = '#241f18'; ctx.fillRect(cx - 8, y + h - 18, 16, 14);
+    ctx.strokeStyle = selBuilding === b.id ? '#ffd76a' : out; ctx.lineWidth = selBuilding === b.id ? 3 : 1.5; rr(x, y, w, h, 3); ctx.stroke();
+  }
+  if (b.type !== 'bunker') {
+    ctx.strokeStyle = '#2a2620'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x + 6, y - 1); ctx.lineTo(x + 6, y - 17); ctx.stroke();
+    ctx.fillStyle = col; ctx.fillRect(x + 6, y - 17, 11, 7);
+    ctx.fillStyle = 'rgba(245,242,215,.92)'; ctx.font = 'bold 9px Courier New'; ctx.textAlign = 'center';
+    ctx.fillText(b.type === 'hq' ? 'HQ' : b.type === 'barracks' ? 'BARRACKS' : 'FACTORY', cx, cy + 2);
   }
   if (b.constructing) {
     ctx.fillStyle = 'rgba(0,0,0,.42)'; ctx.fillRect(b.x, b.y, b.w, b.h);
@@ -785,6 +869,17 @@ function shade(hex, amt) {
   let [r, g, b] = m.map(h => parseInt(h, 16));
   if (amt > 0) { r += (255 - r) * amt; g += (255 - g) * amt; b += (255 - b) * amt; } else { r *= 1 + amt; g *= 1 + amt; b *= 1 + amt; }
   return `rgb(${r | 0},${g | 0},${b | 0})`;
+}
+function rr(x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath(); ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+function star(cx, cy, r, col) {
+  ctx.fillStyle = col; ctx.beginPath();
+  for (let i = 0; i < 10; i++) { const ang = -Math.PI / 2 + i * Math.PI / 5, rad = i % 2 ? r * 0.45 : r; const px = cx + Math.cos(ang) * rad, py = cy + Math.sin(ang) * rad; i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
+  ctx.closePath(); ctx.fill();
 }
 function render() {
   const s = DPR(); ctx.setTransform(s, 0, 0, s, 0, 0); ctx.clearRect(0, 0, innerWidth, innerHeight);
