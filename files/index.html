@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Frontline 1944</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- HOME -->
+<div id="screen-home" class="screen">
+  <div class="panel">
+    <h1>FRONTLINE <span>1944</span></h1>
+    <p class="tag">A 2D World War II real time strategy game</p>
+    <label>Call sign</label>
+    <input id="nameInput" maxlength="14" placeholder="Commander" autocomplete="off">
+    <button id="createBtn" class="bigbtn">CREATE PARTY</button>
+    <div class="joinrow">
+      <input id="codeInput" maxlength="5" placeholder="CODE" autocomplete="off">
+      <button id="joinBtn" class="bigbtn alt">JOIN</button>
+    </div>
+    <button id="soloBtn" class="bigbtn ghost">SKIRMISH VS BOTS</button>
+    <p class="fine">Share your party code so friends can join. Empty slots can be filled with bots.</p>
+  </div>
+</div>
+
+<!-- LOBBY -->
+<div id="screen-lobby" class="screen">
+  <div class="panel wide">
+    <div class="codebar">PARTY CODE <span id="roomCode">----</span></div>
+    <div id="modeRow" class="moderow">
+      <button class="mbtn" data-m="ffa">1v1v1v1</button>
+      <button class="mbtn" data-m="2v2">2v2</button>
+      <button class="mbtn" data-m="1v2">1v2</button>
+    </div>
+    <div id="slotList" class="slotlist"></div>
+    <div id="lobbyFlash" class="flash"></div>
+    <div class="lobbybtns">
+      <button id="startBtn" class="bigbtn">START BATTLE</button>
+      <button id="leaveBtn" class="bigbtn ghost">LEAVE</button>
+    </div>
+    <p id="hostNote" class="fine">Waiting for the host to start the battle...</p>
+    <p id="lobbyHint" class="fine"></p>
+  </div>
+</div>
+
+<!-- GAME -->
+<div id="screen-game">
+  <canvas id="cv"></canvas>
+  <div id="topbar"></div>
+  <div id="selinfo"></div>
+  <canvas id="mini" width="156" height="110"></canvas>
+  <div id="groups"></div>
+  <div id="bottombar"></div>
+  <div id="toast"></div>
+  <div id="end">
+    <div class="endcard">
+      <h2 id="endTitle"></h2>
+      <p id="endText"></p>
+      <button id="playAgain" class="bigbtn">BACK TO MENU</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="lobby.js"></script>
+</body>
+</html>
